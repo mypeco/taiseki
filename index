@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>面積と体積がみえるツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js 本体 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f3f4f6; touch-action: none; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; }
+        .pointer-events-auto { pointer-events: auto; }
+        
+        /* カスタムスライダーのスタイル */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #4f46e5;
+            cursor: pointer;
+            margin-top: -8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            background: #e5e7eb;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer" class="p-4 md:p-6">
+        <!-- 上部：計算式と視点切り替え -->
+        <div class="flex flex-col md:flex-row justify-between items-start gap-4 pointer-events-auto">
+            <!-- 計算式パネル -->
+            <div class="bg-white/90 backdrop-blur-sm p-4 rounded-xl shadow-lg border border-gray-200 w-full md:w-auto">
+                <h1 class="text-lg font-bold text-gray-800 mb-2 border-b pb-1">計算式</h1>
+                
+                <div class="space-y-3">
+                    <!-- 面積の式 -->
+                    <div class="bg-orange-50 p-2 rounded-lg border border-orange-200">
+                        <div class="text-xs text-orange-600 font-bold mb-1">① 1段目の「面積（めんせき）」</div>
+                        <div class="text-lg text-gray-800 flex items-center flex-wrap gap-1">
+                            <span class="font-bold">たて <span id="val-d-1" class="text-orange-600">1</span></span>
+                            <span class="text-gray-400">×</span>
+                            <span class="font-bold">よこ <span id="val-w-1" class="text-orange-600">1</span></span>
+                            <span class="text-gray-400">＝</span>
+                            <span class="font-bold text-xl text-orange-600"><span id="val-area">1</span></span>
+                        </div>
+                    </div>
+
+                    <!-- 体積の式 (ID追加、トランジション追加) -->
+                    <div id="volume-formula" class="bg-blue-50 p-2 rounded-lg border border-blue-200 transition-opacity duration-300">
+                        <div class="text-xs text-blue-600 font-bold mb-1">② 積み重なった「体積（たいせき）」</div>
+                        <div class="text-lg text-gray-800 flex items-center flex-wrap gap-1">
+                            <span class="font-bold">面積 <span id="val-area-2" class="text-orange-600">1</span></span>
+                            <span class="text-gray-400">×</span>
+                            <span class="font-bold">たかさ <span id="val-h-1" class="text-blue-600">1</span></span>
+                            <span class="text-gray-400">＝</span>
+                            <span class="font-bold text-2xl text-blue-600"><span id="val-volume">1</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- カメラコントロール -->
+            <div class="bg-white/90 backdrop-blur-sm p-2 rounded-xl shadow-lg border border-gray-200 flex md:flex-col gap-2 w-full md:w-auto overflow-x-auto">
+                <button id="btn-top-view" class="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg transition-colors whitespace-nowrap flex-1 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="3" x2="21" y1="15" y2="15"/><line x1="9" x2="9" y1="3" y2="21"/><line x1="15" x2="15" y1="3" y2="21"/></svg>
+                    真上から見る<br><span class="text-xs font-normal text-gray-500">(面積の確認)</span>
+                </button>
+                <button id="btn-iso-view" class="px-4 py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg transition-colors whitespace-nowrap flex-1 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    斜めから見る<br><span class="text-xs font-normal text-indigo-500">(体積の確認)</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 下部：スライダーコントロール -->
+        <div class="pointer-events-auto bg-white/90 backdrop-blur-sm p-4 rounded-xl shadow-lg border border-gray-200 mt-auto max-w-2xl mx-auto w-full">
+            <h2 class="text-sm font-bold text-gray-500 mb-3 text-center">ブロックの数を変えてみよう</h2>
+            <div class="space-y-4">
+                
+                <!-- たて（奥行き） -->
+                <div class="flex items-center gap-4">
+                    <label class="w-16 text-right font-bold text-gray-700">たて</label>
+                    <input type="range" id="slider-d" min="1" max="8" value="1" class="flex-1">
+                    <span class="w-8 text-center font-bold text-lg" id="label-d">1</span>
+                </div>
+
+                <!-- よこ（幅） -->
+                <div class="flex items-center gap-4">
+                    <label class="w-16 text-right font-bold text-gray-700">よこ</label>
+                    <input type="range" id="slider-w" min="1" max="8" value="1" class="flex-1">
+                    <span class="w-8 text-center font-bold text-lg" id="label-w">1</span>
+                </div>
+
+                <!-- たかさ (ID追加、トランジション追加) -->
+                <div id="height-control" class="flex items-center gap-4 pt-2 border-t border-gray-100 transition-opacity duration-300">
+                    <label class="w-16 text-right font-bold text-blue-600">たかさ</label>
+                    <input type="range" id="slider-h" min="1" max="8" value="1" class="flex-1 transition-opacity">
+                    <span class="w-8 text-center font-bold text-lg text-blue-600" id="label-h">1</span>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 変数と設定 ---
+        let scene, camera, renderer, controls;
+        let blocksGroup = new THREE.Group();
+        
+        // スライダーの現在の値
+        let currentW = 1; // よこ
+        let currentD = 1; // たて（奥行き）
+        let currentH = 1; // たかさ
+
+        // カメラアニメーション用
+        let isAnimatingCamera = false;
+        let targetCameraPosition = new THREE.Vector3();
+        const ISO_POS = new THREE.Vector3(12, 10, 15);
+        const TOP_POS = new THREE.Vector3(0, 20, 0);
+
+        // マテリアルの設定
+        // 面積を示す面（オレンジ）
+        const materialBase = new THREE.MeshLambertMaterial({ 
+            color: 0xf97316, // オレンジ
+            transparent: true,
+            opacity: 0.95
+        });
+        
+        // 体積を示す部分（ブルー）
+        const materialHeight = new THREE.MeshLambertMaterial({ 
+            color: 0x60a5fa, // ブルー
+            transparent: true,
+            opacity: 0.7
+        });
+
+        // 最上段ブロック用のマテリアル配列（上面のみオレンジ、他はブルー）
+        const materialsTopLayer = [
+            materialHeight, // 0: 右
+            materialHeight, // 1: 左
+            materialBase,   // 2: 上 (面積)
+            materialHeight, // 3: 下
+            materialHeight, // 4: 手前
+            materialHeight  // 5: 奥
+        ];
+
+        // ブロックの輪郭線マテリアル
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+        const boxGeo = new THREE.BoxGeometry(0.95, 0.95, 0.95); // 少し隙間を空ける
+        const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+
+        // --- 初期化 ---
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // シーン
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf3f4f6); // 背景色合わせ
+
+            // カメラ (初期位置をTOP_POSに変更)
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.copy(TOP_POS);
+
+            // レンダラー
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            // 照明
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(10, 20, 10);
+            scene.add(dirLight);
+
+            const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+            dirLight2.position.set(-10, 10, -10);
+            scene.add(dirLight2);
+
+            // グリッドヘルパー（床）
+            const gridHelper = new THREE.GridHelper(20, 20, 0xcccccc, 0xe5e7eb);
+            gridHelper.position.y = -0.5;
+            scene.add(gridHelper);
+
+            // コントロール
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxDistance = 50;
+            controls.minDistance = 5;
+            controls.maxPolarAngle = Math.PI / 2 - 0.05; // 地下に行かないように
+
+            scene.add(blocksGroup);
+
+            // イベントリスナー
+            window.addEventListener('resize', onWindowResize);
+            
+            // UIイベント
+            setupUIEvents();
+
+            // 初期描画
+            updateBlocks();
+            updateUI();
+            
+            // 初期UIモードを「真上(2D)モード」に設定
+            setViewMode(true);
+
+            // アニメーションループ開始
+            animate();
+        }
+
+        // --- UIモード（2D/3D）の切り替え制御 ---
+        function setViewMode(isTopView) {
+            const volFormula = document.getElementById('volume-formula');
+            const heightControl = document.getElementById('height-control');
+            const sliderH = document.getElementById('slider-h');
+
+            if (isTopView) {
+                // 真上（面積モード）：高さの概念を無効化・グレーアウト
+                volFormula.classList.add('opacity-40');
+                heightControl.classList.add('opacity-40');
+                sliderH.disabled = true;
+                sliderH.classList.add('cursor-not-allowed');
+            } else {
+                // 斜め（体積モード）：高さの概念を有効化
+                volFormula.classList.remove('opacity-40');
+                heightControl.classList.remove('opacity-40');
+                sliderH.disabled = false;
+                sliderH.classList.remove('cursor-not-allowed');
+            }
+        }
+
+        // --- ブロックの生成と更新 ---
+        function updateBlocks() {
+            // 既存のブロックをクリア
+            while(blocksGroup.children.length > 0){ 
+                const child = blocksGroup.children[0];
+                blocksGroup.remove(child); 
+            }
+
+            // 中心を原点に合わせるためのオフセット
+            const offsetX = (currentW - 1) / 2;
+            const offsetZ = (currentD - 1) / 2;
+
+            for (let y = 0; y < currentH; y++) {
+                for (let z = 0; z < currentD; z++) {
+                    for (let x = 0; x < currentW; x++) {
+                        
+                        // マテリアルの選択（最上段の上面のみオレンジ、他はブルー）
+                        const mat = (y === currentH - 1) ? materialsTopLayer : materialHeight;
+                        const mesh = new THREE.Mesh(boxGeo, mat);
+                        
+                        // 位置の計算
+                        mesh.position.set(
+                            x - offsetX,
+                            y,
+                            z - offsetZ
+                        );
+
+                        // 輪郭線の追加
+                        const line = new THREE.LineSegments(edgesGeo, lineMaterial);
+                        line.position.copy(mesh.position);
+
+                        blocksGroup.add(mesh);
+                        blocksGroup.add(line);
+                    }
+                }
+            }
+        }
+
+        // --- UIのイベントと更新 ---
+        function setupUIEvents() {
+            const sliders = ['w', 'd', 'h'];
+            
+            sliders.forEach(id => {
+                document.getElementById(`slider-${id}`).addEventListener('input', (e) => {
+                    const val = parseInt(e.target.value);
+                    if (id === 'w') currentW = val;
+                    if (id === 'd') currentD = val;
+                    if (id === 'h') currentH = val;
+                    
+                    updateBlocks();
+                    updateUI();
+                });
+            });
+
+            // カメラボタン (視点移動とUIモードの切り替えを連動)
+            document.getElementById('btn-top-view').addEventListener('click', () => {
+                moveCameraTo(TOP_POS);
+                setViewMode(true);
+            });
+            document.getElementById('btn-iso-view').addEventListener('click', () => {
+                moveCameraTo(ISO_POS);
+                setViewMode(false);
+            });
+        }
+
+        function updateUI() {
+            // スライダーラベルの更新
+            document.getElementById('label-w').innerText = currentW;
+            document.getElementById('label-d').innerText = currentD;
+            document.getElementById('label-h').innerText = currentH;
+
+            // 計算式の更新
+            const area = currentW * currentD;
+            const volume = area * currentH;
+
+            document.getElementById('val-w-1').innerText = currentW;
+            document.getElementById('val-d-1').innerText = currentD;
+            document.getElementById('val-area').innerText = area;
+            
+            document.getElementById('val-area-2').innerText = area;
+            document.getElementById('val-h-1').innerText = currentH;
+            document.getElementById('val-volume').innerText = volume;
+        }
+
+        // --- カメラ移動アニメーション ---
+        function moveCameraTo(targetPos) {
+            targetCameraPosition.copy(targetPos);
+            isAnimatingCamera = true;
+        }
+
+        // --- リサイズ処理 ---
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- アニメーションループ ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // カメラのスムーズな移動
+            if (isAnimatingCamera) {
+                camera.position.lerp(targetCameraPosition, 0.05);
+                controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.05);
+                
+                // 目的地に近づいたらアニメーション終了
+                if (camera.position.distanceTo(targetCameraPosition) < 0.1) {
+                    isAnimatingCamera = false;
+                }
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- 起動 ---
+        window.onload = init;
+    </script>
+</body>
+</html>
